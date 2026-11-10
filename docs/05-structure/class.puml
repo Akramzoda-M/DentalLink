@@ -1,0 +1,317 @@
+@startuml class
+title DentalLink: Диаграмма классов (Class Diagram)
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+hide empty members
+
+package "Доменная модель (DentalLink.Domain)" {
+
+  class User<<entity>> {
+    +id: long
+    +fullName: string
+    +email: string
+    -passwordHash: string
+    +phone: string
+    +role: UserRole
+    +isActive: bool
+    +createdAt: DateTime
+    +updatedAt: DateTime
+  }
+
+  class Doctor<<entity>> {
+    +id: long
+    +userId: long
+    +specialization: DoctorSpecialization
+    +qualification: string
+    +experienceYears: int
+    +bio: string
+    +avatarUrl: string
+    +isActive: bool
+    +createdAt: DateTime
+  }
+
+  class Cabinet<<entity>> {
+    +id: long
+    +name: string
+    +chairNumber: int
+    +description: string
+    +isAvailable: bool
+  }
+
+  class ServiceCategory<<entity>> {
+    +id: long
+    +name: string
+    +description: string
+    +sortOrder: int
+  }
+
+  class DentalService<<entity>> {
+    +id: long
+    +categoryId: long
+    +name: string
+    +description: string
+    +price: decimal
+    +durationMinutes: int
+    +isActive: bool
+    +createdAt: DateTime
+  }
+
+  class DoctorSchedule<<entity>> {
+    +id: long
+    +doctorId: long
+    +cabinetId: long
+    +date: DateOnly
+    +startTime: TimeOnly
+    +endTime: TimeOnly
+    +createdAt: DateTime
+  }
+
+  class TimeSlot<<entity>> {
+    +id: long
+    +scheduleId: long
+    +doctorId: long
+    +cabinetId: long
+    +date: DateOnly
+    +startTime: TimeOnly
+    +endTime: TimeOnly
+    +status: SlotStatus
+    +reservedUntil: DateTime?
+  }
+
+  class Patient<<entity>> {
+    +id: long
+    +fullName: string
+    +phone: string
+    +email: string?
+    +birthDate: DateOnly?
+    +telegramChatId: long?
+    +notes: string?
+    +createdAt: DateTime
+  }
+
+  class Appointment<<entity>> {
+    +id: long
+    +appointmentNumber: string
+    +patientId: long
+    +doctorId: long
+    +serviceId: long
+    +slotId: long
+    +cabinetId: long
+    +status: AppointmentStatus
+    +patientComplaint: string?
+    +doctorNotes: string?
+    +isConfirmedByPatient: bool
+    +createdAt: DateTime
+    +updatedAt: DateTime
+  }
+
+  class Notification<<entity>> {
+    +id: long
+    +appointmentId: long
+    +telegramChatId: long
+    +type: NotificationType
+    +status: NotificationStatus
+    +scheduledAt: DateTime
+    +sentAt: DateTime?
+    +responsePayload: string?
+  }
+
+  enum UserRole {
+    Admin
+    Receptionist
+    Doctor
+  }
+
+  enum DoctorSpecialization {
+    Dentist
+    Therapist
+    Orthopedist
+    Orthodontist
+    Surgeon
+    Implantologist
+    Pediatric
+    Hygienist
+  }
+
+  enum SlotStatus {
+    Free
+    Reserved
+    Booked
+  }
+
+  enum AppointmentStatus {
+    Confirmed
+    Arrived
+    InProgress
+    Completed
+    Cancelled
+    NoShow
+  }
+
+  enum NotificationType {
+    Confirmation
+    Reminder24h
+    Reminder2h
+    Cancellation
+  }
+
+  enum NotificationStatus {
+    Pending
+    Sent
+    Failed
+  }
+}
+
+' Связи между сущностями
+User "1" *-- "0..1" Doctor : расширяет учётную запись >
+Doctor "1" o-- "0..*" DoctorSchedule : работает по сменам >
+Cabinet "1" o-- "0..*" DoctorSchedule : предоставляет место >
+DoctorSchedule "1" *-- "1..*" TimeSlot : генерирует слоты >
+ServiceCategory "1" o-- "0..*" DentalService : категоризирует >
+Patient "1" o-- "0..*" Appointment : оформляет запись >
+Doctor "1" o-- "0..*" Appointment : проводит приём >
+DentalService "1" o-- "0..*" Appointment : оказывается в >
+TimeSlot "1" o-- "0..1" Appointment : занимает >
+Cabinet "1" o-- "0..*" Appointment : принимает в кабинете >
+Appointment "1" *-- "0..*" Notification : порождает напоминания >
+
+User ..> UserRole
+Doctor ..> DoctorSpecialization
+TimeSlot ..> SlotStatus
+Appointment ..> AppointmentStatus
+Notification ..> NotificationType
+Notification ..> NotificationStatus
+
+package "Контроллеры API (DentalLink.Api)" {
+
+  class AuthController {
+    -authService: IAuthService
+    +Login(dto: LoginRequest): Task<IActionResult>
+    +GetCurrentUser(): Task<IActionResult>
+  }
+
+  class DoctorsController {
+    -doctorRepo: IDoctorRepository
+    +GetDoctors(specialization: string?): Task<IActionResult>
+    +GetDoctorById(id: long): Task<IActionResult>
+    +CreateDoctor(dto: CreateDoctorDto): Task<IActionResult>
+  }
+
+  class ServicesController {
+    -serviceRepo: IServiceRepository
+    +GetCategories(): Task<IActionResult>
+    +GetServices(catId: long?): Task<IActionResult>
+    +CreateService(dto: ServiceDto): Task<IActionResult>
+  }
+
+  class ScheduleController {
+    -scheduleRepo: IScheduleRepository
+    +GetTimeline(date: DateOnly): Task<IActionResult>
+    +GetFreeSlots(doctorId: long, date: DateOnly): Task<IActionResult>
+    +GenerateMonthlySchedule(dto: GenerateScheduleDto): Task<IActionResult>
+  }
+
+  class AppointmentsController {
+    -appointmentService: IAppointmentService
+    +BookAppointment(dto: BookAppointmentDto): Task<IActionResult>
+    +GetAppointmentById(id: long): Task<IActionResult>
+    +UpdateStatus(id: long, dto: StatusDto): Task<IActionResult>
+    +CancelAppointment(id: long): Task<IActionResult>
+  }
+
+  class PatientsController {
+    -patientRepo: IPatientRepository
+    +Search(query: string): Task<IActionResult>
+    +GetPatientHistory(id: long): Task<IActionResult>
+  }
+}
+
+package "Инфраструктура и доступ к данным (DentalLink.Infrastructure)" {
+
+  class DentalLinkDbContext {
+    +Users: DbSet<User>
+    +Doctors: DbSet<Doctor>
+    +Cabinets: DbSet<Cabinet>
+    +Services: DbSet<DentalService>
+    +Schedules: DbSet<DoctorSchedule>
+    +TimeSlots: DbSet<TimeSlot>
+    +Patients: DbSet<Patient>
+    +Appointments: DbSet<Appointment>
+    +Notifications: DbSet<Notification>
+    +SaveChangesAsync(): Task<int>
+    +BeginTransactionAsync(): Task<IDbContextTransaction>
+  }
+
+  class AppointmentRepository {
+    -context: DentalLinkDbContext
+    -redis: IConnectionMultiplexer
+    +GetByIdAsync(id: long): Task<Appointment>
+    +CreateWithLockAsync(appointment: Appointment, slotId: long): Task<bool>
+    +UpdateStatusAsync(id: long, status: AppointmentStatus): Task<bool>
+    +GetTimelineAppointmentsAsync(date: DateOnly): Task<List<Appointment>>
+  }
+
+  class SlotRepository {
+    -context: DentalLinkDbContext
+    +GetFreeSlotsAsync(doctorId: long, date: DateOnly): Task<List<TimeSlot>>
+    +LockSlotAsync(slotId: long, ttl: TimeSpan): Task<bool>
+    +ReleaseSlotAsync(slotId: long): Task<bool>
+  }
+
+  class DoctorRepository {
+    -context: DentalLinkDbContext
+    +GetAllActiveAsync(specialization?: string): Task<List<Doctor>>
+    +GetByIdWithScheduleAsync(id: long): Task<Doctor>
+  }
+
+  class UserRepository {
+    -context: DentalLinkDbContext
+    +FindByEmailAsync(email: string): Task<User?>
+    +GetByIdAsync(id: long): Task<User?>
+  }
+
+  class ServiceRepository {
+    -context: DentalLinkDbContext
+    +GetCategoriesAsync(): Task<List<ServiceCategory>>
+    +GetServicesAsync(categoryId: long?): Task<List<DentalService>>
+    +AddAsync(service: DentalService): Task
+  }
+
+  class PatientRepository {
+    -context: DentalLinkDbContext
+    +SearchAsync(query: string): Task<List<Patient>>
+    +GetHistoryAsync(id: long): Task<Patient?>
+  }
+
+  class TelegramNotificationService {
+    -botClient: ITelegramBotClient
+    -context: DentalLinkDbContext
+    +SendBookingConfirmationAsync(appointmentId: long): Task
+    +SendReminder24hAsync(): Task
+    +SendReminder2hAsync(): Task
+    +ProcessCallbackQueryAsync(callback: TelegramCallback): Task
+  }
+}
+
+' Связи контроллеров с сервисами и репозиториями
+AuthController --> UserRepository
+DoctorsController --> DoctorRepository
+ServicesController --> ServiceRepository
+ScheduleController --> SlotRepository
+AppointmentsController --> AppointmentRepository
+AppointmentsController --> TelegramNotificationService
+PatientsController --> PatientRepository
+
+UserRepository ..> User : читает
+ServiceRepository ..> DentalService : читает / сохраняет
+PatientRepository ..> Patient : ищет
+
+AppointmentRepository ..> Appointment : сохраняет / читает
+AppointmentRepository ..> TimeSlot : обновляет статус
+SlotRepository ..> TimeSlot : блокирует / читает
+DoctorRepository ..> Doctor : читает
+DoctorRepository ..> DoctorSchedule : читает
+TelegramNotificationService ..> Notification : логирует отправку
+
+@enduml
