@@ -1,0 +1,64 @@
+@startuml sequence
+skinparam shadowing false
+skinparam roundcorner 6
+autonumber
+
+title Онлайн-бронирование слота пациентом (Slot Hold, затем Create Appointment)
+
+actor "Пациент\n(patient)" as Patient
+participant "React SPA\n(Vite)" as UI
+participant "AppointmentsController\n(ASP.NET Core API)" as Controller
+participant "AppointmentService\n(Application)" as Service
+participant "Redis\n(Distributed Lock)" as Redis
+participant "AppDbContext\n(EF Core)" as EF
+database "PostgreSQL\n(time_slots, appointments)" as DB
+participant "TelegramBotService\n(Background Worker)" as Bot
+
+Patient -> UI : Выбирает слот (SlotID=105, 14:00)
+UI -> Controller : POST /api/slots/105/hold
+Controller -> Service : HoldSlotAsync(105, ttl=10min)
+
+Service -> Redis : AcquireLockAsync("lock:slot:105", ttl=10min)
+alt Блокировка получена
+  Redis --> Service : Lock Acquired (true)
+  Service -> EF : Перевести слот в reserved, если status = free
+  EF -> DB : UPDATE time_slots\nSET status = 'reserved', reserved_until = now() + 10 min\nWHERE id = 105 AND status = 'free'
+  DB --> EF : RowsAffected = 1
+  EF --> Service : SlotHeld
+  Service --> Controller : HoldResult (holdId, expiresAt)
+  Controller --> UI : 200 OK\n{ "holdId": "105", "expiresAt": "..." }
+  UI --> Patient : Форма: имя, телефон, причина обращения
+
+  Patient -> UI : Вводит «Алишер», «+992900000000»\nи нажимает «Записаться»
+  UI -> Controller : POST /api/appointments/book\n{ "slotId": 105, "patientName": "Алишер",\n  "phone": "+992900000000", "serviceId": 2 }
+
+  Controller -> Controller : Валидация DTO (FluentValidation)
+  Controller -> Service : BookAppointmentAsync(request)
+
+  Service -> EF : GetSlotByIdAsync(105)
+  EF -> DB : SELECT * FROM time_slots WHERE id = 105
+  DB --> EF : Slot (status = reserved, reserved_until > now())
+  EF --> Service : TimeSlot
+
+  Service -> DB : BEGIN TRANSACTION
+  Service -> EF : CreateAppointment(...) и UpdateSlotStatus(105, booked)
+  EF -> DB : INSERT INTO appointments (..., status)\nVALUES (..., 'confirmed');\nUPDATE time_slots SET status = 'booked'\nWHERE id = 105 AND status = 'reserved'
+  DB --> EF : Commit OK
+  EF --> Service : Appointment ID = 240
+
+  Service -> Redis : ReleaseLockAsync("lock:slot:105")
+  Redis --> Service : OK
+  Service -> Bot : QueueNotificationAsync(240, type = created)
+  Bot --> Service : Задача поставлена в очередь
+
+  Service --> Controller : AppointmentResult (240, confirmed)
+  Controller --> UI : 201 Created\n{ "id": 240, "status": "confirmed", "time": "14:00" }
+  UI --> Patient : Экран подтверждения и ссылка на Telegram-бота
+else Слот уже удерживается или занят
+  Redis --> Service : Lock Failed (false)
+  Service --> Controller : SlotAlreadyBookedException
+  Controller --> UI : 409 Conflict\n{ "error": "Выбранный слот уже занят" }
+  UI --> Patient : Сообщение об ошибке и обновление календаря
+end
+
+@enduml

@@ -1,0 +1,79 @@
+@startuml component
+title DentalLink: Архитектура компонентов (Clean Architecture, ASP.NET Core и React)
+
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+node "Клиент: одно React SPA (Vite, TypeScript, React Router)" {
+  [Портал пациента\n(каталог, слоты, запись)] as PatientApp
+  [Рабочее место клиники\n(Timeline, смены, статусы)] as StaffApp
+}
+
+node "Сервер приложений (.NET 10 Web API)" {
+
+  package "Слой представления (API Layer)" {
+    [Program.cs\n(DI Container, Routing, Pipeline)] as Host
+    [Controllers/\n(Auth, Doctors, Services,\nSchedule, Appointments, Patients)] as Controllers
+    [Middlewares/\n(JWT Auth, RateLimiter,\nGlobalExceptionHandler)] as Middlewares
+  }
+
+  package "Слой бизнес-логики (Application Layer)" {
+    [Services/\n(AppointmentService, ScheduleService,\nNotificationService)] as AppServices
+    [Validation/\n(FluentValidation DTO Rules)] as Validators
+    [Interfaces/\n(IRepositories, ITelegramBotService)] as Interfaces
+  }
+
+  package "Доменный слой (Domain Layer)" {
+    [Entities/\n(Doctor, Patient, Cabinet,\nTimeSlot, Appointment, DentalService)] as Entities
+    [Enums/\n(UserRole, SlotStatus,\nAppointmentStatus, NotificationType)] as Enums
+  }
+
+  package "Слой инфраструктуры (Infrastructure Layer)" {
+    [Data/\n(DentalLinkDbContext, Migrations)] as DbContext
+    [Repositories/\n(AppointmentRepo, SlotRepo,\nDoctorRepo, PatientRepo)] as Repositories
+    [RedisService/\n(Distributed Lock & Slot Hold)] as RedisLock
+    [BackgroundWorkers/\n(TelegramReminderWorker, Cron)] as Worker
+  }
+}
+
+database "PostgreSQL\n(dentallink_db)" as Postgres
+database "Redis\n(Distributed Cache & Locks)" as Redis
+cloud "Telegram Bot API\n(Сервис уведомлений)" as TelegramAPI
+
+' Взаимодействие клиентов с API
+PatientApp --> Host : HTTPS / JSON (REST API)
+StaffApp --> Host : HTTPS / JSON (REST API)
+Host --> Middlewares : сквозная обработка
+Middlewares --> Controllers : маршрутизация эндпоинтов
+
+' Взаимодействие слоев
+Controllers --> Validators : валидация DTO
+Controllers --> AppServices : исполнение Use Cases
+AppServices --> Interfaces : обращение через контракты
+Interfaces <|.. Repositories : реализация
+Interfaces <|.. RedisLock : реализация
+
+Repositories --> DbContext : LINQ / EF Core
+Repositories --> Entities : маппинг доменных моделей
+Entities ..> Enums : типизация статусов
+
+' Базы данных и внешние сервисы
+DbContext --> Postgres : Npgsql Driver (TCP 5432)
+Entities ..> Postgres : реляционные таблицы
+RedisLock --> Redis : StackExchange.Redis (TCP 6379)
+
+' Фоновые службы и Telegram
+Worker --> AppServices : напоминания за 24 ч и за 2 ч
+AppServices --> TelegramAPI : исходящие сообщения Bot API
+TelegramAPI --> Host : webhook: подтверждение или отмена
+TelegramAPI ..> PatientApp : сообщения пациенту в Telegram
+
+legend right
+  **Архитектура решения (Clean Architecture):**
+  * **API Layer** = Controllers, Middlewares, Program.cs
+  * **Application** = Бизнес-правила, сервисы, DTO и валидация
+  * **Domain** = Сущности и перечисления без внешних зависимостей
+  * **Infrastructure** = EF Core, PostgreSQL, Redis Lock, Telegram Bot
+endlegend
+
+@enduml
